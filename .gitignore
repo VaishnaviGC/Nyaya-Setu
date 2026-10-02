@@ -1,0 +1,43 @@
+# Environment / secrets
+.env
+.env.*
+!.env.example
+
+# Dependencies
+node_modules/
+venv/
+.venv/
+__pycache__/
+*.py[cod]
+
+# Expo
+.expo/
+.expo-shared/
+dist/
+web-build/
+
+# Build files
+build/
+android/.gradle/
+android/build/
+android/app/build/
+ios/build/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Python
+*.egg-info/
+.pytest_cache/
+
+# Logs
+*.log
+
+# Temporary files
+*.tmp
+*.temp
