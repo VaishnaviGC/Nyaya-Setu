@@ -1,4 +1,5 @@
-import { View, Text, ScrollView, Pressable, StyleSheet, Alert } from "react-native";
+import { View, Text, ScrollView, Pressable, StyleSheet } from "react-native";
+
 import { LinearGradient } from "expo-linear-gradient";
 import { COLORS } from "../theme";
 
@@ -31,21 +32,20 @@ export default function HomeScreen({ navigation }) {
           </Pressable>
         ))}
 
+       
         <Pressable
-          style={[styles.card, { opacity: 0.6 }]}
-          onPress={() =>
-            Alert.alert(
-              "Coming soon",
-              "LitiTrack (court case tracking) is module 2 of Nyaya Setu — built by the M3/M4 team."
-            )
-          }
+          style={styles.card}
+          onPress={() => navigation.navigate("LitiTrack")}
         >
           <Text style={styles.emoji}>⚖️</Text>
           <View style={{ flex: 1 }}>
             <Text style={styles.cardTitle}>I have a court case</Text>
-            <Text style={styles.cardDesc}>Track hearings and understand court orders (LitiTrack).</Text>
+            <Text style={styles.cardDesc}>
+              Save your case number and check court information through eCourts (LitiTrack).
+            </Text>
           </View>
         </Pressable>
+
       </View>
     </ScrollView>
   );

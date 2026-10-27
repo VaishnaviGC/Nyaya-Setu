@@ -15,7 +15,9 @@ History     - one row per AI interaction (rights explained, complaint
 """
 
 from datetime import datetime, timezone
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Text
+from sqlalchemy import (
+    Column, Integer, String, DateTime, ForeignKey, Text, UniqueConstraint
+)
 from sqlalchemy.orm import relationship
 from database import Base
 
@@ -46,3 +48,18 @@ class History(Base):
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     user = relationship("User", back_populates="history")
+
+
+
+class SavedCase(Base):
+    __tablename__ = "saved_cases"
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "cnr", name="uq_saved_case_user_cnr"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    cnr = Column(String(16), nullable=False)
+    nickname = Column(String(100), nullable=True, default=None)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))

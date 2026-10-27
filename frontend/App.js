@@ -17,6 +17,8 @@ import SavedScreen from "./src/screens/SavedScreen";
 import ProfileScreen from "./src/screens/ProfileScreen";
 import HistoryScreen from "./src/screens/HistoryScreen";
 
+import LitiTrackScreen from "./src/screens/LitiTrackScreen";
+
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
 const AuthStack = createNativeStackNavigator();
@@ -59,6 +61,11 @@ function MainNavigator() {
       <Stack.Screen name="Rights" component={RightsScreen} options={{ title: "Your Rights" }} />
       <Stack.Screen name="Complaint" component={ComplaintScreen} options={{ title: "Complaint Letter" }} />
       <Stack.Screen name="History" component={HistoryScreen} options={{ title: "Your History" }} />
+      <Stack.Screen
+  name="LitiTrack"
+  component={LitiTrackScreen}
+  options={{ title: "LitiTrack — Court Cases" }}
+/>
     </Stack.Navigator>
   );
 }

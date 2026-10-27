@@ -17,13 +17,23 @@ Run:  uvicorn main:app --reload --host 0.0.0.0 --port 8000
 """
 
 import base64
+import json
 import logging
+import os
+import urllib.error
+import urllib.request
+from io import BytesIO
 from contextlib import asynccontextmanager
 from dotenv import load_dotenv
+import base64
+import binascii
+from io import BytesIO
+from pypdf import PdfReader
+from pydantic import BaseModel
 
 load_dotenv()  # must run BEFORE importing gemini_service, which reads env vars at import time
 
-from fastapi import FastAPI, HTTPException, Depends, Request
+from fastapi import FastAPI, HTTPException, Depends, Request, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response, JSONResponse
 from pydantic import BaseModel, Field
@@ -32,7 +42,7 @@ from sqlalchemy.orm import Session
 import gemini_service as gemini
 from pdf_service import letter_to_pdf_bytes
 from database import get_db, init_db
-from models import User, History
+from models import User, History,SavedCase
 from auth import (
     hash_password,
     verify_password,
@@ -196,6 +206,24 @@ class HistorySummaryResponse(BaseModel):
     first_interaction: str | None
     latest_interaction: str | None
 
+
+
+
+class SaveCaseRequest(BaseModel):
+    cnr: str = Field(..., min_length=16, max_length=16)
+    nickname: str | None = Field(default=None, max_length=100)
+
+
+class SavedCaseResponse(BaseModel):
+    id: int
+    cnr: str
+    nickname: str | None = None
+    created_at: str
+
+
+class SimplifyPdfRequest(BaseModel):
+    filename: str = "court-order.pdf"
+    pdf_base64: str
 
 # ---------------------------------------------------------------------------
 # Health
@@ -394,6 +422,59 @@ def simplify_order(req: SimplifyOrderRequest):
     return gemini.simplify_court_order(req.order_text)
 
 
+
+@app.post("/simplify-order-pdf")
+async def simplify_order_pdf(
+    req: SimplifyPdfRequest,
+    current_user: User = Depends(get_current_user),
+):
+    try:
+        pdf_bytes = base64.b64decode(
+            req.pdf_base64,
+            validate=True,
+        )
+
+        if len(pdf_bytes) > 10 * 1024 * 1024:
+            raise HTTPException(
+                status_code=413,
+                detail="PDF must be smaller than 10 MB.",
+            )
+
+        if not pdf_bytes.startswith(b"%PDF-"):
+            raise HTTPException(
+                status_code=400,
+                detail="The uploaded file is not a valid PDF.",
+            )
+
+        reader = PdfReader(BytesIO(pdf_bytes))
+        order_text = "\n".join(
+            page.extract_text() or ""
+            for page in reader.pages
+        ).strip()
+
+        if not order_text:
+            raise HTTPException(
+                status_code=422,
+                detail="No readable text found. This PDF may need OCR.",
+            )
+
+        return gemini.simplify_court_order(order_text)
+
+    except HTTPException:
+        raise
+    except (ValueError, binascii.Error):
+        raise HTTPException(
+            status_code=400,
+            detail="Unable to decode the uploaded PDF.",
+        )
+    except Exception:
+        raise HTTPException(
+            status_code=500,
+            detail="Unable to process this PDF. Please try another file.",
+        )
+
+
+
 # ---------------------------------------------------------------------------
 # History
 # ---------------------------------------------------------------------------
@@ -435,3 +516,165 @@ def get_history_summary(current_user: User = Depends(get_current_user), db: Sess
         first_interaction=timestamps[0].isoformat() if timestamps else None,
         latest_interaction=timestamps[-1].isoformat() if timestamps else None,
     )
+
+
+
+# ---------------------------------------------------------------------------
+
+# LitiTrack - saved court cases
+# ---------------------------------------------------------------------------
+
+import re
+
+
+@app.get("/lititrack/cases", response_model=list[SavedCaseResponse])
+def list_saved_cases(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    cases = (
+        db.query(SavedCase)
+        .filter(SavedCase.user_id == current_user.id)
+        .order_by(SavedCase.created_at.desc())
+        .all()
+    )
+
+    return [
+        SavedCaseResponse(
+            id=case.id,
+            cnr=case.cnr,
+            nickname=case.nickname,
+            created_at=case.created_at.isoformat(),
+        )
+        for case in cases
+    ]
+
+
+@app.post("/lititrack/cases", response_model=SavedCaseResponse, status_code=201)
+def save_case(
+    req: SaveCaseRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    cnr = req.cnr.strip().upper()
+
+    if not re.fullmatch(r"[A-Z0-9]{16}", cnr):
+        raise HTTPException(
+            status_code=400,
+            detail="CNR must contain exactly 16 letters and digits.",
+        )
+
+    existing = (
+        db.query(SavedCase)
+        .filter(
+            SavedCase.user_id == current_user.id,
+            SavedCase.cnr == cnr,
+        )
+        .first()
+    )
+
+    if existing:
+        raise HTTPException(
+            status_code=409,
+            detail="This case is already saved.",
+        )
+
+    nickname = (req.nickname or "").strip() or None
+
+    case = SavedCase(
+        user_id=current_user.id,
+        cnr=cnr,
+        nickname=nickname,
+    )
+
+    db.add(case)
+    db.commit()
+    db.refresh(case)
+
+    return SavedCaseResponse(
+        id=case.id,
+        cnr=case.cnr,
+        nickname=case.nickname,
+        created_at=case.created_at.isoformat(),
+    )
+
+
+@app.delete("/lititrack/cases/{case_id}")
+def delete_saved_case(
+    case_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    case = (
+        db.query(SavedCase)
+        .filter(
+            SavedCase.id == case_id,
+            SavedCase.user_id == current_user.id,
+        )
+        .first()
+    )
+
+    if not case:
+        raise HTTPException(
+            status_code=404,
+            detail="Saved case not found.",
+        )
+
+    db.delete(case)
+    db.commit()
+
+    return {"deleted": True}
+
+
+# ---------------------------------------------------------------------------
+# LitiTrack - optional live case lookup (eCourtsIndia partner API)
+# The token stays on the backend; the mobile app never receives it.
+# ---------------------------------------------------------------------------
+
+@app.get("/lititrack/live-case/{cnr}")
+def get_live_case(
+    cnr: str,
+    current_user: User = Depends(get_current_user),
+):
+    api_key = os.getenv("ECOURTSINDIA_API_KEY", "").strip()
+    if not api_key:
+        raise HTTPException(
+            status_code=503,
+            detail="Live case lookup is not configured yet. Add ECOURTSINDIA_API_KEY to the backend .env file.",
+        )
+
+    normalized_cnr = cnr.strip().upper()
+    # eCourtsIndia documentation specifies four letters followed by 12 digits.
+    if not re.fullmatch(r"[A-Z]{4}\d{12}", normalized_cnr):
+        raise HTTPException(
+            status_code=400,
+            detail="For live lookup, enter a valid 16-character CNR: 4 letters followed by 12 digits.",
+        )
+
+    url = f"https://webapi.ecourtsindia.com/api/partner/case/{normalized_cnr}"
+    request = urllib.request.Request(
+        url,
+        headers={"Authorization": f"Bearer {api_key}", "Accept": "application/json"},
+        method="GET",
+    )
+
+    try:
+        with urllib.request.urlopen(request, timeout=25) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+            return payload
+    except urllib.error.HTTPError as exc:
+        response_body = exc.read().decode("utf-8", errors="replace")
+        if exc.code in (401, 403):
+            raise HTTPException(status_code=502, detail="eCourtsIndia rejected the API token. Check ECOURTSINDIA_API_KEY in the backend .env file.")
+        if exc.code == 404:
+            raise HTTPException(status_code=404, detail="No case details were found for this CNR in the API.")
+        if exc.code == 402:
+            raise HTTPException(status_code=402, detail="The eCourtsIndia API reports insufficient credits. Check your API Usage dashboard.")
+        if exc.code == 429:
+            raise HTTPException(status_code=429, detail="The eCourtsIndia API rate limit was reached. Please wait and try again.")
+        logging.warning("eCourtsIndia API returned HTTP %s: %s", exc.code, response_body[:500])
+        raise HTTPException(status_code=502, detail=f"eCourtsIndia API request failed (HTTP {exc.code}). Please try again later.")
+    except urllib.error.URLError:
+        raise HTTPException(status_code=502, detail="Could not connect to eCourtsIndia. Please try again later.")
+    except (TimeoutError, json.JSONDecodeError):
+        raise HTTPException(status_code=502, detail="eCourtsIndia took too long to respond or returned invalid data.")

@@ -3,8 +3,9 @@
 // "localhost" means the phone itself, not your laptop. Use your laptop's WiFi IP
 // (run `ipconfig` on Windows, look for IPv4 Address). Phone and laptop must be on
 // the same WiFi. Android emulator: http://10.0.2.2:8000
-export const API_BASE_URL = "http://192.168.128.168:8000"; // <-- YOUR laptop's WiFi IP
+export const API_BASE_URL = "http://10.161.30.51:8000"; // <-- YOUR laptop's WiFi IP
 
+import * as FileSystem from "expo-file-system/legacy";
 const REQUEST_TIMEOUT_MS = 90000;
 
 // One place for timeouts and readable error messages.
@@ -78,3 +79,59 @@ export async function getHistory(token) {
 export async function getHistorySummary(token) {
   return get("/history/summary", token);
 }
+
+
+export async function getSavedCases(token) {
+  return get("/lititrack/cases", token);
+}
+export async function saveCase(cnr, token, nickname = "") {
+  return post(
+    "/lititrack/cases",
+    { cnr, nickname },
+    token
+  );
+}
+
+export async function deleteSavedCase(caseId, token) {
+  const res = await request(`/lititrack/cases/${caseId}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  return res.json();
+}
+
+
+export async function simplifyCourtOrder(orderText) {
+  return post("/simplify-order", { order_text: orderText });
+}
+
+
+export async function getLiveCaseDetails(cnr, token) {
+  return get(
+    `/lititrack/live-case/${encodeURIComponent(cnr)}`,
+    token
+  );
+}
+
+
+
+export async function uploadCourtOrderPdf(uri, name, token) {
+  // Read the selected PDF as Base64 using Expo's legacy FileSystem API.
+  const pdfBase64 = await FileSystem.readAsStringAsync(uri, {
+    encoding: FileSystem.EncodingType.Base64,
+  });
+
+  if (!pdfBase64) {
+    throw new Error("Could not read the selected PDF. Please select it again.");
+  }
+
+  return post(
+    "/simplify-order-pdf",
+    {
+      filename: name || "court-order.pdf",
+      pdf_base64: pdfBase64,
+    },
+    token
+  );
+}
+

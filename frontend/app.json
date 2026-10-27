@@ -6,11 +6,9 @@
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
-
     "ios": {
       "supportsTablet": true
     },
-
     "android": {
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
@@ -19,18 +17,18 @@
         "monochromeImage": "./assets/android-icon-monochrome.png"
       }
     },
-
     "web": {
       "favicon": "./assets/favicon.png"
     },
-
     "plugins": [
       [
         "expo-audio",
         {
           "microphonePermission": "Allow Nyaya Setu to access your microphone so you can speak your legal query."
         }
-      ]
+      ],
+      "expo-secure-store",
+      "expo-sharing"
     ]
   }
 }
